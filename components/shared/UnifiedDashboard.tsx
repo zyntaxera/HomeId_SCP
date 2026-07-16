@@ -19,12 +19,15 @@ import { InsightDashboard } from '../lead/InsightDashboard';
 import { CoverageCheck } from '../sales/CoverageCheck';
 import { CapelForm } from '../sales/CapelForm';
 import { UserApproval } from '../admin/UserApproval';
-import { MasterData } from '../admin/MasterData';
+const MasterData = dynamic(
+  () => import('../admin/MasterData').then(mod => mod.MasterData),
+  { ssr: false }
+);
 import { SidebarNav } from './SidebarNav';
 import { FloatingPanel } from './FloatingPanel';
 import { AnimatePresence, motion } from 'framer-motion';
 
-export type ActivePanel = 'coverage' | 'pelanggan' | 'tiang' | 'insight' | 'master' | 'homepass' | 'profile' | null;
+export type ActivePanel = 'coverage' | 'pelanggan' | 'tiang' | 'insight' | 'master' | 'homepass' | 'profile' | 'approval' | null;
 
 export function UnifiedDashboard() {
   const { 

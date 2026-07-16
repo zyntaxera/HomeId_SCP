@@ -13,7 +13,7 @@ interface VerdictRevealProps {
 
 export function VerdictReveal({ result, onRegisterClick, onDemandClick, onClose }: VerdictRevealProps) {
   // Animasi hero
-  const containerVariants = {
+  const containerVariants: any = {
     hidden: { opacity: 0 },
     visible: { 
       opacity: 1,
@@ -21,7 +21,7 @@ export function VerdictReveal({ result, onRegisterClick, onDemandClick, onClose 
     }
   };
 
-  const itemVariants = {
+  const itemVariants: any = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { type: 'spring', damping: 20 } }
   };

@@ -5,8 +5,8 @@ import { LogOut, Map, Users, Database, LayoutDashboard, ShieldCheck, Target, Map
 
 interface SidebarNavProps {
   currentUser: User;
-  activePanel: string | null;
-  setActivePanel: (panel: string | null) => void;
+  activePanel: any;
+  setActivePanel: (panel: any) => void;
 }
 
 export function SidebarNav({ currentUser, activePanel, setActivePanel }: SidebarNavProps) {

@@ -1,4 +1,4 @@
-export type Role = 'Admin' | 'Lead';
+export type Role = 'Admin' | 'Lead' | 'Sales';
 export type ValidasiStatus = 'Pending' | 'Approved' | 'Rejected';
 export type ProviderLevel = 'Dalam Jangkauan' | 'Penuh' | 'Perlu Survei' | 'Belum Terjangkau';
 export type PortStatus = 'Tersedia' | 'Terisi' | 'Rusak';

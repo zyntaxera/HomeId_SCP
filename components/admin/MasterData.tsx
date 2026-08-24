@@ -26,6 +26,7 @@ export function MasterData() {
   const [isSearching, setIsSearching] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [bulkProviderId, setBulkProviderId] = useState<string>('');
 
   // Edit State
   const { fats, updateFat, deleteFat } = useStore();
@@ -94,6 +95,10 @@ export function MasterData() {
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!bulkProviderId) {
+      alert('Silakan pilih Provider terlebih dahulu dari dropdown sebelum mengunggah file.');
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -107,20 +112,15 @@ export function MasterData() {
       let successCount = 0;
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(',');
-        if (cols.length >= 7) {
-          const providerId = cols[0].trim();
-          // Verify provider exists
-          const isValidProvider = providers.some(p => p.id_provider === providerId);
-          if (!isValidProvider) continue; // Skip invalid provider rows
-
+        if (cols.length >= 6) {
           const newFat = addFat({
-            id_provider: providerId,
-            kode_fat: cols[1].trim(),
-            nama_lokasi: cols[2].trim(),
-            alamat: cols[3].trim(),
-            latitude: parseFloat(cols[4].trim()),
-            longitude: parseFloat(cols[5].trim()),
-            radius_layanan_m: parseInt(cols[6].trim()) || 250,
+            id_provider: bulkProviderId,
+            kode_fat: cols[0].trim(),
+            nama_lokasi: cols[1].trim(),
+            alamat: cols[2].trim(),
+            latitude: parseFloat(cols[3].trim()),
+            longitude: parseFloat(cols[4].trim()),
+            radius_layanan_m: parseInt(cols[5]?.trim()) || 250,
             status_verifikasi: 'Terverifikasi',
             terakhir_dicek: new Date().toISOString(),
             foto_bukti_url: null
@@ -279,7 +279,7 @@ export function MasterData() {
           </form>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit">
+         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit">
            <div className="flex justify-between items-start mb-4">
              <div>
                <h3 className="font-extrabold text-slate-800">Bulk Import FAT (CSV)</h3>
@@ -287,8 +287,8 @@ export function MasterData() {
              </div>
              <button 
                onClick={() => {
-                 const header = "provider_id,kode_fat,nama_lokasi,alamat,latitude,longitude,radius_layanan_m\n";
-                 const example = "p-1,ID-BDO-99,Gedung Sate,Jl. Diponegoro 22,-6.9024,107.6188,250\n";
+                 const header = "kode_fat,nama_lokasi,alamat,latitude,longitude,radius_layanan_m\n";
+                 const example = "ID-BDO-99,Gedung Sate,Jl. Diponegoro 22,-6.9024,107.6188,250\n";
                  const blob = new Blob([header + example], { type: 'text/csv' });
                  const url = URL.createObjectURL(blob);
                  const link = document.createElement('a');
@@ -302,10 +302,17 @@ export function MasterData() {
              </button>
            </div>
            
+           <div className="mb-4">
+              <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Pilih Provider Tujuan</label>
+              <select value={bulkProviderId} onChange={e => setBulkProviderId(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all">
+                <option value="" disabled>-- Pilih Provider --</option>
+                {providers.filter(p => p.status_aktif).map(p => <option key={p.id_provider} value={p.id_provider}>{p.nama}</option>)}
+              </select>
+           </div>
+
            <div className="mb-5 bg-slate-50 p-4 rounded-xl border border-slate-200">
              <p className="text-xs font-bold text-slate-700 mb-2 uppercase">Format Struktur Kolom Wajib:</p>
              <ul className="text-xs text-slate-600 font-mono space-y-1 list-disc list-inside">
-               <li>provider_id <span className="text-[10px] text-slate-400 font-sans">(Contoh: p-1 untuk IndiHome)</span></li>
                <li>kode_fat <span className="text-[10px] text-slate-400 font-sans">(Unik, misal: BZ-JKT-01)</span></li>
                <li>nama_lokasi <span className="text-[10px] text-slate-400 font-sans">(Teks bebas)</span></li>
                <li>alamat <span className="text-[10px] text-slate-400 font-sans">(Alamat lengkap)</span></li>

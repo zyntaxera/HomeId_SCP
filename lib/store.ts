@@ -53,6 +53,9 @@ interface AppState {
   // Map Interactions
   selectedMapItemId: string | null;
   setSelectedMapItemId: (id: string | null) => void;
+  
+  // Homepass actions
+  setHomepasses: (homepasses: Homepass[]) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -71,6 +74,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   selectedMapItemId: null,
   setSelectedMapItemId: (id) => set({ selectedMapItemId: id }),
+  setHomepasses: (homepasses) => set({ homepasses }),
 
   _addLog: (log) => {
     const newLog: LogAktivitas = {

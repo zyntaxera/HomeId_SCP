@@ -82,6 +82,8 @@ export interface Homepass {
   blok_tower: string; // e.g., Jl. Kaca Jendela
   lantai: number;
   nomor: string;
+  kode_pos: string;
+  catatan: string;
   latitude: number;
   longitude: number;
   classing_area: string; // e.g., C

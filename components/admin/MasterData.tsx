@@ -94,6 +94,63 @@ export function MasterData() {
     setQuery('');
   };
 
+  const parseCsvLine = (line: string) => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const next = line[i + 1];
+
+      if (char === '"') {
+        if (inQuotes && next === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if ((char === ',' || char === ';') && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+
+    result.push(current.trim());
+    return result;
+  };
+
+  const normalizeKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+  const safeNumber = (value: string | undefined, fallback = 0) => {
+    if (value === undefined || value === null) return fallback;
+    const cleaned = String(value).replace(/[^0-9.-]/g, '').trim();
+    if (!cleaned) return fallback;
+    const num = Number(cleaned);
+    return Number.isFinite(num) ? num : fallback;
+  };
+
+  const findColumnIndex = (headers: string[], candidates: string[]) => {
+    for (const candidate of candidates) {
+      const normalized = normalizeKey(candidate);
+      const index = headers.findIndex(header => normalizeKey(header) === normalized);
+      if (index >= 0) return index;
+    }
+    return -1;
+  };
+
+  const parseCoordinate = (rawValue: string | undefined) => {
+    if (!rawValue) return [null, null] as const;
+    const cleaned = rawValue.replace(/\s+/g, ' ').trim();
+    const match = cleaned.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/);
+    if (match) {
+      return [safeNumber(match[1]), safeNumber(match[2])] as const;
+    }
+    return [null, null] as const;
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!bulkProviderId) {
       alert('Silakan pilih Provider terlebih dahulu dari dropdown sebelum mengunggah file.');
@@ -105,41 +162,84 @@ export function MasterData() {
     const reader = new FileReader();
     reader.onload = (event) => {
       const csvData = event.target?.result as string;
-      const lines = csvData.split('\n').filter(line => line.trim() !== '');
+      const lines = csvData.split(/\r?\n/).filter(line => line.trim() !== '');
       if (lines.length < 2) return alert('File CSV kosong atau format tidak valid.');
 
-      // Skip header
-      let successCount = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(',');
-        if (cols.length >= 6) {
-          const newFat = addFat({
-            id_provider: bulkProviderId,
-            kode_fat: cols[0].trim(),
-            nama_lokasi: cols[1].trim(),
-            alamat: cols[2].trim(),
-            latitude: parseFloat(cols[3].trim()),
-            longitude: parseFloat(cols[4].trim()),
-            radius_layanan_m: parseInt(cols[5]?.trim()) || 250,
-            status_verifikasi: 'Terverifikasi',
-            terakhir_dicek: new Date().toISOString(),
-            foto_bukti_url: null
-          });
+      const headers = parseCsvLine(lines[0]);
+      const requiredKeys = ['kode_fat', 'nama_lokasi', 'alamat', 'latitude', 'longitude', 'radius_layanan_m'];
+      const missingKeys = requiredKeys.filter(key => findColumnIndex(headers, [key, key.replace('_', ''), key.replace('radius_layanan_m', 'radius'), key.replace('latitude', 'lat'), key.replace('longitude', 'lng'), key.replace('nama_lokasi', 'nama'), key.replace('kode_fat', 'kode')]) < 0)
+      const hasAddressFields = ['province', 'city', 'subdistrict', 'village', 'street', 'number', 'postalcode'].some(field => headers.some(header => normalizeKey(header) === field || normalizeKey(header).includes(field)));
 
-          _addLog({
-            entitas: 'FAT',
-            id_entitas: newFat.id_fat,
-            aksi: 'Bulk Import FAT',
-            nilai_lama: null,
-            nilai_baru: newFat.kode_fat,
-            id_user_eksekutor: currentUser!.id_user
-          });
-          successCount++;
-        }
+      if (missingKeys.length > 0 && !hasAddressFields) {
+        alert('Format CSV tidak sesuai. Pastikan file memuat kolom seperti: kode_fat, nama_lokasi, alamat, latitude, longitude, radius_layanan_m. Jika memakai template Excel, simpan dulu ke CSV lalu upload kembali.');
+        return;
       }
-      
+
+      let successCount = 0;
+
+      for (let i = 1; i < lines.length; i++) {
+        const row = parseCsvLine(lines[i]);
+        const map = Object.fromEntries(headers.map((header, index) => [normalizeKey(header), row[index] ?? '']));
+
+        const latitudeIndex = findColumnIndex(headers, ['latitude', 'lat', 'latitude_decimal', 'koordinat_lat', 'y']);
+        const longitudeIndex = findColumnIndex(headers, ['longitude', 'lng', 'lon', 'longitude_decimal', 'koordinat_lng', 'x']);
+        const coordinateIndex = findColumnIndex(headers, ['coordinate', 'coordinates', 'koordinat']);
+        const kodeIndex = findColumnIndex(headers, ['kode_fat', 'kodefat', 'fat_code', 'homeid', 'kode', 'projectid']);
+        const nameIndex = findColumnIndex(headers, ['nama_lokasi', 'namalokasi', 'locationname', 'projectname', 'project_name', 'street', 'nama', 'alamat_lokasi']);
+        const addressIndex = findColumnIndex(headers, ['alamat', 'address', 'street', 'fulladdress', 'jalan', 'lokasi']);
+        const radiusIndex = findColumnIndex(headers, ['radius_layanan_m', 'radiusm', 'radius', 'radius_meter']);
+
+        const rawKode = kodeIndex >= 0 ? row[kodeIndex] : map.kodefat || map.kode || map.homeid || map.projectid || '';
+        const rawName = nameIndex >= 0 ? row[nameIndex] : map.namalokasi || map.projectname || map.street || '';
+        const rawAddress = addressIndex >= 0 ? row[addressIndex] : map.alamat || map.address || map.street || '';
+        const rawLatitude = latitudeIndex >= 0 ? row[latitudeIndex] : map.latitude || map.lat || '';
+        const rawLongitude = longitudeIndex >= 0 ? row[longitudeIndex] : map.longitude || map.lng || map.lon || '';
+        const rawRadius = radiusIndex >= 0 ? row[radiusIndex] : map.radiuslayananm || map.radius || '';
+
+        const coordinateValue = coordinateIndex >= 0 ? row[coordinateIndex] : '';
+        const [parsedLat, parsedLng] = parseCoordinate(coordinateValue);
+        const finalLat = safeNumber(rawLatitude || (parsedLat !== null ? String(parsedLat) : undefined));
+        const finalLng = safeNumber(rawLongitude || (parsedLng !== null ? String(parsedLng) : undefined));
+
+        if (!rawKode && !rawName && !rawAddress && !finalLat && !finalLng) continue;
+        if (!Number.isFinite(finalLat) || !Number.isFinite(finalLng)) continue;
+
+        const province = row[findColumnIndex(headers, ['province', 'provinsi'])] || '';
+        const city = row[findColumnIndex(headers, ['city', 'kota'])] || '';
+        const subdistrict = row[findColumnIndex(headers, ['subdistrict', 'kecamatan'])] || '';
+        const village = row[findColumnIndex(headers, ['village', 'kelurahan'])] || '';
+        const street = row[findColumnIndex(headers, ['street', 'jalan', 'alamat_jalan'])] || '';
+        const number = row[findColumnIndex(headers, ['number', 'nomor', 'no'])] || '';
+
+        const formattedAddress = rawAddress || [street, number, village, subdistrict, city, province].filter(Boolean).join(', ');
+        const finalCode = (rawKode || `FAT-${successCount + 1}`).trim();
+        const finalName = (rawName || formattedAddress || `Lokasi ${finalCode}`).trim();
+
+        const newFat = addFat({
+          id_provider: bulkProviderId,
+          kode_fat: finalCode,
+          nama_lokasi: finalName,
+          alamat: formattedAddress || `Lokasi ${finalCode}`,
+          latitude: finalLat,
+          longitude: finalLng,
+          radius_layanan_m: Math.max(1, Math.round(safeNumber(rawRadius || '250', 250))),
+          status_verifikasi: 'Terverifikasi',
+          terakhir_dicek: new Date().toISOString(),
+          foto_bukti_url: null
+        });
+
+        _addLog({
+          entitas: 'FAT',
+          id_entitas: newFat.id_fat,
+          aksi: 'Bulk Import FAT',
+          nilai_lama: null,
+          nilai_baru: newFat.kode_fat,
+          id_user_eksekutor: currentUser!.id_user
+        });
+        successCount++;
+      }
+
       alert(`Berhasil mengimpor ${successCount} infrastruktur FAT/ODP dari file CSV.`);
-      // reset file input
       if (fileInputRef.current) fileInputRef.current.value = '';
     };
     reader.onerror = () => {
@@ -268,7 +368,7 @@ export function MasterData() {
             {hasCoordinates && (
               <div className="w-full h-40 rounded-xl overflow-hidden border border-slate-300 mt-2 relative z-0">
                 <MapContainer center={mapCenter} zoom={16} style={{ height: '100%', width: '100%' }} zoomControl={false}>
-                  <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
                   <MiniMapFlyTo center={mapCenter} />
                   <Marker position={mapCenter} icon={markerIcon} />
                 </MapContainer>

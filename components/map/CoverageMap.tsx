@@ -106,6 +106,7 @@ export function CoverageMap({
   };
 
   const defaultCenter: [number, number] = [-6.9200, 107.6200];
+  const OSM_TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
   return (
     <MapContainer 
@@ -115,8 +116,8 @@ export function CoverageMap({
       zoomControl={false}
     >
       <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-        attribution='&copy; OpenStreetMap'
+        url={OSM_TILE_URL}
+        attribution='&copy; OpenStreetMap contributors'
       />
       <MapFlyTo center={flyToCenter} />
       <MapEvents />

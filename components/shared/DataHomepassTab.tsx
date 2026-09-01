@@ -79,7 +79,6 @@ export function DataHomepassTab() {
           latitude: parseFloat(latStr) || 0,
           longitude: parseFloat(lngStr) || 0,
           id_proyek: cols[12] || '',
-          nama_proyek: cols[13] || '',
           customer_status: cols[14] || '',
           classing_area: cols[15] || 'C',
           tipe_lokasi: 'Residential'

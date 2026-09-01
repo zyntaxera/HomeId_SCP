@@ -18,7 +18,23 @@ export function MasterData() {
   const { providers, addProvider, updateProvider, deleteProvider, addFat, _addLog, currentUser } = useStore();
   
   const [formData, setFormData] = useState({
-    providerId: '', kode: '', nama: '', alamat: '', lat: '', lng: '', radius: '250'
+    providerId: '',
+    province: '',
+    city: '',
+    subdistrict: '',
+    village: '',
+    street: '',
+    number: '',
+    postalCode: '',
+    notes: '',
+    homeId: '',
+    projectId: '',
+    projectName: '',
+    customerStatus: 'Aktif',
+    coordinate: '',
+    lat: '',
+    lng: '',
+    radius: '250'
   });
 
   const [query, setQuery] = useState('');
@@ -52,29 +68,55 @@ export function MasterData() {
 
   const handleSelectSuggestion = (item: GeocodeResult) => {
     setQuery(item.display_name);
-    setFormData({
-      ...formData,
-      nama: item.display_name.split(',')[0],
-      alamat: item.display_name,
-      lat: item.lat,
-      lng: item.lon
-    });
+    setFormData(prev => ({
+      ...prev,
+      street: item.display_name.split(',')[0],
+      notes: item.display_name,
+      lat: String(item.lat),
+      lng: String(item.lon)
+    }));
     setShowSuggestions(false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.providerId) return alert('Pilih provider!');
-    if (!formData.lat || !formData.lng) return alert('Pilih atau masukkan koordinat Valid!');
-    
+
+    const coordinateValue = (formData.coordinate || '').trim();
+    let finalLat = formData.lat ? parseFloat(formData.lat) : NaN;
+    let finalLng = formData.lng ? parseFloat(formData.lng) : NaN;
+
+    if (coordinateValue && coordinateValue.includes(',')) {
+      const [coordLat, coordLng] = coordinateValue.split(',').map(v => parseFloat(v.trim()));
+      if (!Number.isNaN(coordLat)) finalLat = coordLat;
+      if (!Number.isNaN(coordLng)) finalLng = coordLng;
+    }
+
+    if (!Number.isFinite(finalLat) || !Number.isFinite(finalLng)) {
+      return alert('Masukkan koordinat valid, baik dari Latitude/Longitude maupun kolom Coordinate.');
+    }
+
+    const addressParts = [
+      formData.street,
+      formData.number,
+      formData.village,
+      formData.subdistrict,
+      formData.city,
+      formData.province
+    ].filter(Boolean);
+
+    const formattedAddress = addressParts.join(', ');
+    const projectId = formData.projectId || formData.homeId || `FAT-${Date.now()}`;
+    const projectName = formData.projectName || formData.street || 'Lokasi Baru';
+
     const newFat = addFat({
       id_provider: formData.providerId,
-      kode_fat: formData.kode,
-      nama_lokasi: formData.nama,
-      alamat: formData.alamat,
-      latitude: parseFloat(formData.lat),
-      longitude: parseFloat(formData.lng),
-      radius_layanan_m: parseInt(formData.radius),
+      kode_fat: projectId,
+      nama_lokasi: projectName,
+      alamat: formData.notes || formattedAddress || 'Alamat belum diisi',
+      latitude: finalLat,
+      longitude: finalLng,
+      radius_layanan_m: parseInt(formData.radius) || 250,
       status_verifikasi: 'Terverifikasi',
       terakhir_dicek: new Date().toISOString(),
       foto_bukti_url: null
@@ -90,7 +132,25 @@ export function MasterData() {
     });
 
     alert('Berhasil menambah FAT dan otomatis meng-generate Port!');
-    setFormData({ providerId: '', kode: '', nama: '', alamat: '', lat: '', lng: '', radius: '250' });
+    setFormData({
+      providerId: '',
+      province: '',
+      city: '',
+      subdistrict: '',
+      village: '',
+      street: '',
+      number: '',
+      postalCode: '',
+      notes: '',
+      homeId: '',
+      projectId: '',
+      projectName: '',
+      customerStatus: 'Aktif',
+      coordinate: '',
+      lat: '',
+      lng: '',
+      radius: '250'
+    });
     setQuery('');
   };
 
@@ -151,6 +211,64 @@ export function MasterData() {
     return [null, null] as const;
   };
 
+  const parseExcelLikeRows = (html: string) => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const rows = Array.from(doc.querySelectorAll('tr'));
+    const tableRows = rows.filter(row => row.querySelectorAll('td,th').length > 0);
+    if (tableRows.length === 0) return [] as Record<string, string>[];
+
+    const headerRow = Array.from(tableRows[0].querySelectorAll('th,td')).map(cell => cell.textContent?.trim() ?? '');
+    const dataRows = tableRows.slice(1);
+
+    return dataRows.map(row => {
+      const cells = Array.from(row.querySelectorAll('td')).map(cell => cell.textContent?.trim() ?? '');
+      const mapped: Record<string, string> = {};
+      headerRow.forEach((header, index) => {
+        mapped[normalizeKey(header)] = cells[index] ?? '';
+      });
+      return mapped;
+    });
+  };
+
+  const buildFatFromRecord = (record: Record<string, string>, fallbackIndex: number) => {
+    const province = record.province || record.provinsi || '';
+    const city = record.city || record.kota || '';
+    const subdistrict = record.subdistrict || record.kecamatan || '';
+    const village = record.village || record.kelurahan || '';
+    const street = record.street || record.jalan || record.alamattxt || record.alamat || '';
+    const number = record.number || record.nomor || record.streetno || record.no || '';
+    const projectId = record.projectid || record.project_id || record.idproyek || record.kode || '';
+    const projectName = record.projectname || record.project_nm || record.namalokasi || record.nama_lokasi || record.locationname || '';
+    const homeId = record.homeid || record.home_id || record.homeidvalue || '';
+    const notes = record.notes || record.catatan || '';
+    const coordinate = record.coordinate || record.coordiante || record.coordinates || record.kordinat || '';
+    const radius = record.radius_layanan_m || record.radiusm || record.radius || '250';
+
+    const parsedCoord = parseCoordinate(coordinate);
+    const lat = safeNumber(
+      record.latitude || record.lat || (parsedCoord[0] !== null ? String(parsedCoord[0]) : undefined),
+      0
+    );
+    const lng = safeNumber(
+      record.longitude || record.lng || record.lon || (parsedCoord[1] !== null ? String(parsedCoord[1]) : undefined),
+      0
+    );
+
+    const formattedAddress = [street, number, village, subdistrict, city, province].filter(Boolean).join(', ');
+    const finalCode = (projectId || homeId || `FAT-${fallbackIndex + 1}`).trim();
+    const finalName = (projectName || homeId || notes || formattedAddress || `Lokasi ${finalCode}`).trim();
+
+    return {
+      kode_fat: finalCode,
+      nama_lokasi: finalName,
+      alamat: formattedAddress || notes || `Lokasi ${finalCode}`,
+      latitude: lat,
+      longitude: lng,
+      radius_layanan_m: Math.max(1, Math.round(safeNumber(radius, 250)))
+    };
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!bulkProviderId) {
       alert('Silakan pilih Provider terlebih dahulu dari dropdown sebelum mengunggah file.');
@@ -161,65 +279,128 @@ export function MasterData() {
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const csvData = event.target?.result as string;
-      const lines = csvData.split(/\r?\n/).filter(line => line.trim() !== '');
-      if (lines.length < 2) return alert('File CSV kosong atau format tidak valid.');
+      const rawData = event.target?.result as string;
+      const lowerName = file.name.toLowerCase();
+      const isHtmlTable = rawData.includes('<table') || lowerName.endsWith('.xls');
+      const rows = isHtmlTable ? parseExcelLikeRows(rawData) : [];
 
-      const headers = parseCsvLine(lines[0]);
-      const requiredKeys = ['kode_fat', 'nama_lokasi', 'alamat', 'latitude', 'longitude', 'radius_layanan_m'];
-      const missingKeys = requiredKeys.filter(key => findColumnIndex(headers, [key, key.replace('_', ''), key.replace('radius_layanan_m', 'radius'), key.replace('latitude', 'lat'), key.replace('longitude', 'lng'), key.replace('nama_lokasi', 'nama'), key.replace('kode_fat', 'kode')]) < 0)
-      const hasAddressFields = ['province', 'city', 'subdistrict', 'village', 'street', 'number', 'postalcode'].some(field => headers.some(header => normalizeKey(header) === field || normalizeKey(header).includes(field)));
+      if (isHtmlTable && rows.length > 0) {
+        let successCount = 0;
 
-      if (missingKeys.length > 0 && !hasAddressFields) {
-        alert('Format CSV tidak sesuai. Pastikan file memuat kolom seperti: kode_fat, nama_lokasi, alamat, latitude, longitude, radius_layanan_m. Jika memakai template Excel, simpan dulu ke CSV lalu upload kembali.');
+        rows.forEach((record, index) => {
+          const hasAnyValue = Object.values(record).some(value => value && value.trim() !== '');
+          if (!hasAnyValue) return;
+
+          const built = buildFatFromRecord(record, index);
+          if (!Number.isFinite(built.latitude) || !Number.isFinite(built.longitude)) return;
+
+          const newFat = addFat({
+            id_provider: bulkProviderId,
+            kode_fat: built.kode_fat,
+            nama_lokasi: built.nama_lokasi,
+            alamat: built.alamat,
+            latitude: built.latitude,
+            longitude: built.longitude,
+            radius_layanan_m: built.radius_layanan_m,
+            status_verifikasi: 'Terverifikasi',
+            terakhir_dicek: new Date().toISOString(),
+            foto_bukti_url: null
+          });
+
+          _addLog({
+            entitas: 'FAT',
+            id_entitas: newFat.id_fat,
+            aksi: 'Bulk Import FAT',
+            nilai_lama: null,
+            nilai_baru: newFat.kode_fat,
+            id_user_eksekutor: currentUser!.id_user
+          });
+          successCount++;
+        });
+
+        alert(`Berhasil mengimpor ${successCount} data FAT dari file Excel.`);
+        if (fileInputRef.current) fileInputRef.current.value = '';
         return;
       }
 
-      let successCount = 0;
+      const csvData = rawData;
+      const lines = csvData.split(/\r?\n/).filter(line => line.trim() !== '');
+      if (lines.length < 2) return alert('File kosong atau format tidak valid untuk import FAT.');
 
+      const headers = parseCsvLine(lines[0]);
+      const hasExcelStructure = ['province','city','subdistrict','village','street','number','postalcode','homeid','coordinate','projectid','projectname','custstatus']
+        .some(key => headers.some(header => normalizeKey(header) === key || normalizeKey(header).includes(key)));
+
+      let successCount = 0;
       for (let i = 1; i < lines.length; i++) {
         const row = parseCsvLine(lines[i]);
-        const map = Object.fromEntries(headers.map((header, index) => [normalizeKey(header), row[index] ?? '']));
+        const mapped: Record<string, string> = {};
+        headers.forEach((header, index) => {
+          mapped[normalizeKey(header)] = row[index] ?? '';
+        });
+
+        const hasValue = Object.values(mapped).some(value => value && value.trim() !== '');
+        if (!hasValue) continue;
+
+        if (hasExcelStructure) {
+          const built = buildFatFromRecord(mapped, i - 1);
+          if (!Number.isFinite(built.latitude) || !Number.isFinite(built.longitude)) continue;
+
+          const newFat = addFat({
+            id_provider: bulkProviderId,
+            kode_fat: built.kode_fat,
+            nama_lokasi: built.nama_lokasi,
+            alamat: built.alamat,
+            latitude: built.latitude,
+            longitude: built.longitude,
+            radius_layanan_m: built.radius_layanan_m,
+            status_verifikasi: 'Terverifikasi',
+            terakhir_dicek: new Date().toISOString(),
+            foto_bukti_url: null
+          });
+
+          _addLog({
+            entitas: 'FAT',
+            id_entitas: newFat.id_fat,
+            aksi: 'Bulk Import FAT',
+            nilai_lama: null,
+            nilai_baru: newFat.kode_fat,
+            id_user_eksekutor: currentUser!.id_user
+          });
+          successCount++;
+          continue;
+        }
 
         const latitudeIndex = findColumnIndex(headers, ['latitude', 'lat', 'latitude_decimal', 'koordinat_lat', 'y']);
         const longitudeIndex = findColumnIndex(headers, ['longitude', 'lng', 'lon', 'longitude_decimal', 'koordinat_lng', 'x']);
         const coordinateIndex = findColumnIndex(headers, ['coordinate', 'coordinates', 'koordinat']);
         const kodeIndex = findColumnIndex(headers, ['kode_fat', 'kodefat', 'fat_code', 'homeid', 'kode', 'projectid']);
         const nameIndex = findColumnIndex(headers, ['nama_lokasi', 'namalokasi', 'locationname', 'projectname', 'project_name', 'street', 'nama', 'alamat_lokasi']);
-        const addressIndex = findColumnIndex(headers, ['alamat', 'address', 'street', 'fulladdress', 'jalan', 'lokasi']);
+        const addressIndex = findColumnIndex(headers, ['alamat', 'address', 'fulladdress', 'jalan', 'lokasi']);
         const radiusIndex = findColumnIndex(headers, ['radius_layanan_m', 'radiusm', 'radius', 'radius_meter']);
 
-        const rawKode = kodeIndex >= 0 ? row[kodeIndex] : map.kodefat || map.kode || map.homeid || map.projectid || '';
-        const rawName = nameIndex >= 0 ? row[nameIndex] : map.namalokasi || map.projectname || map.street || '';
-        const rawAddress = addressIndex >= 0 ? row[addressIndex] : map.alamat || map.address || map.street || '';
-        const rawLatitude = latitudeIndex >= 0 ? row[latitudeIndex] : map.latitude || map.lat || '';
-        const rawLongitude = longitudeIndex >= 0 ? row[longitudeIndex] : map.longitude || map.lng || map.lon || '';
-        const rawRadius = radiusIndex >= 0 ? row[radiusIndex] : map.radiuslayananm || map.radius || '';
+        const rawKode = kodeIndex >= 0 ? row[kodeIndex] : mapped.kodefat || mapped.kode || mapped.homeid || mapped.projectid || '';
+        const rawName = nameIndex >= 0 ? row[nameIndex] : mapped.namalokasi || mapped.projectname || mapped.street || '';
+        const rawAddress = addressIndex >= 0 ? row[addressIndex] : mapped.alamat || mapped.address || mapped.street || '';
+        const rawLatitude = latitudeIndex >= 0 ? row[latitudeIndex] : mapped.latitude || mapped.lat || '';
+        const rawLongitude = longitudeIndex >= 0 ? row[longitudeIndex] : mapped.longitude || mapped.lng || mapped.lon || '';
+        const rawRadius = radiusIndex >= 0 ? row[radiusIndex] : mapped.radiuslayananm || mapped.radius || '';
 
         const coordinateValue = coordinateIndex >= 0 ? row[coordinateIndex] : '';
         const [parsedLat, parsedLng] = parseCoordinate(coordinateValue);
         const finalLat = safeNumber(rawLatitude || (parsedLat !== null ? String(parsedLat) : undefined));
         const finalLng = safeNumber(rawLongitude || (parsedLng !== null ? String(parsedLng) : undefined));
 
-        if (!rawKode && !rawName && !rawAddress && !finalLat && !finalLng) continue;
         if (!Number.isFinite(finalLat) || !Number.isFinite(finalLng)) continue;
 
-        const province = row[findColumnIndex(headers, ['province', 'provinsi'])] || '';
-        const city = row[findColumnIndex(headers, ['city', 'kota'])] || '';
-        const subdistrict = row[findColumnIndex(headers, ['subdistrict', 'kecamatan'])] || '';
-        const village = row[findColumnIndex(headers, ['village', 'kelurahan'])] || '';
-        const street = row[findColumnIndex(headers, ['street', 'jalan', 'alamat_jalan'])] || '';
-        const number = row[findColumnIndex(headers, ['number', 'nomor', 'no'])] || '';
-
-        const formattedAddress = rawAddress || [street, number, village, subdistrict, city, province].filter(Boolean).join(', ');
         const finalCode = (rawKode || `FAT-${successCount + 1}`).trim();
-        const finalName = (rawName || formattedAddress || `Lokasi ${finalCode}`).trim();
+        const finalName = (rawName || rawAddress || `Lokasi ${finalCode}`).trim();
 
         const newFat = addFat({
           id_provider: bulkProviderId,
           kode_fat: finalCode,
           nama_lokasi: finalName,
-          alamat: formattedAddress || `Lokasi ${finalCode}`,
+          alamat: rawAddress || `Lokasi ${finalCode}`,
           latitude: finalLat,
           longitude: finalLng,
           radius_layanan_m: Math.max(1, Math.round(safeNumber(rawRadius || '250', 250))),
@@ -313,14 +494,78 @@ export function MasterData() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-               <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Kode FAT</label>
-                  <input required type="text" value={formData.kode} onChange={e => setFormData({...formData, kode: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="MIS-BDO-01" />
-               </div>
-               <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Radius Layanan (m)</label>
-                  <input required type="number" min="1" value={formData.radius} onChange={e => setFormData({...formData, radius: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" />
-               </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Province</label>
+                <input type="text" value={formData.province} onChange={e => setFormData({...formData, province: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="Dki Jakarta" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">City</label>
+                <input type="text" value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="Jakarta Timur" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Subdistrict</label>
+                <input type="text" value={formData.subdistrict} onChange={e => setFormData({...formData, subdistrict: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="Cipayung" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Village</label>
+                <input type="text" value={formData.village} onChange={e => setFormData({...formData, village: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="Cilangkap" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Street</label>
+                <input type="text" value={formData.street} onChange={e => setFormData({...formData, street: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="Jl. Assyafiyah" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Number</label>
+                <input type="text" value={formData.number} onChange={e => setFormData({...formData, number: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="~13870-1" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Postal Code</label>
+                <input type="text" value={formData.postalCode} onChange={e => setFormData({...formData, postalCode: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="13870" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Radius Layanan (m)</label>
+                <input type="number" min="1" value={formData.radius} onChange={e => setFormData({...formData, radius: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Notes</label>
+              <textarea rows={2} value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all resize-none" placeholder="Catatan lokasi / detail tambahan" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">HomeID</label>
+                <input type="text" value={formData.homeId} onChange={e => setFormData({...formData, homeId: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="13870H000.3.00007" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Cust. Status</label>
+                <select value={formData.customerStatus} onChange={e => setFormData({...formData, customerStatus: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all">
+                  <option value="Aktif">Aktif</option>
+                  <option value="Tidak Aktif">Tidak Aktif</option>
+                  <option value="Calon">Calon</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Project ID</label>
+                <input type="text" value={formData.projectId} onChange={e => setFormData({...formData, projectId: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="P2402501" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Project Name</label>
+                <input type="text" value={formData.projectName} onChange={e => setFormData({...formData, projectName: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="FBEOPA CKG RW 05 CILANGKAP TK" />
+              </div>
             </div>
 
             <div className="relative">
@@ -350,18 +595,18 @@ export function MasterData() {
             </div>
 
             <div>
-               <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Alamat Lengkap</label>
-               <textarea required rows={2} value={formData.alamat} onChange={e => setFormData({...formData, alamat: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all resize-none" placeholder="Alamat instalasi..." />
+               <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Coordinate</label>
+               <input type="text" value={formData.coordinate} onChange={e => setFormData({...formData, coordinate: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="-6.33950034562618, 106.896479919066" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
                <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Latitude</label>
-                  <input required type="number" step="any" value={formData.lat} onChange={e => setFormData({...formData, lat: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="-6.9147" />
+                  <input type="number" step="any" value={formData.lat} onChange={e => setFormData({...formData, lat: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="-6.9147" />
                </div>
                <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5 uppercase">Longitude</label>
-                  <input required type="number" step="any" value={formData.lng} onChange={e => setFormData({...formData, lng: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="107.6098" />
+                  <input type="number" step="any" value={formData.lng} onChange={e => setFormData({...formData, lng: e.target.value})} className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" placeholder="107.6098" />
                </div>
             </div>
 
@@ -387,13 +632,41 @@ export function MasterData() {
              </div>
              <button 
                onClick={() => {
-                 const header = "kode_fat,nama_lokasi,alamat,latitude,longitude,radius_layanan_m\n";
-                 const example = "ID-BDO-99,Gedung Sate,Jl. Diponegoro 22,-6.9024,107.6188,250\n";
-                 const blob = new Blob([header + example], { type: 'text/csv' });
+                 const header = [
+                   'Province',
+                   'City',
+                   'Subdistrict',
+                   'Village',
+                   'Street',
+                   'Number',
+                   'Postal Code',
+                   'Notes',
+                   'HomeID',
+                   'Coordinate',
+                   'Project ID',
+                   'Project Name',
+                   'Cust. Status'
+                 ].join(',');
+                 const example = [
+                   'Dki Jakarta',
+                   'Jakarta Timur',
+                   'Cipayung',
+                   'Cilangkap',
+                   'Jl. Assyafiyah',
+                   '~13870-1',
+                   '13870',
+                   'Cilangkap RT01/RW05 - Rumah NN 01',
+                   '13870H000.3.00007',
+                   '-6.33950034562618, 106.896479919066',
+                   'P2402501',
+                   'FBEOPA CKG RW 05 CILANGKAP TK',
+                   'Aktif'
+                 ].join(',');
+                 const blob = new Blob([header + '\n' + example + '\n'], { type: 'text/csv;charset=utf-8;' });
                  const url = URL.createObjectURL(blob);
                  const link = document.createElement('a');
                  link.href = url;
-                 link.download = "Template_Import_FAT.csv";
+                 link.download = 'Template_Import_FAT_Excel.csv';
                  link.click();
                }}
                className="px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-lg hover:bg-indigo-100 transition-colors border border-indigo-200"
@@ -411,20 +684,27 @@ export function MasterData() {
            </div>
 
            <div className="mb-5 bg-slate-50 p-4 rounded-xl border border-slate-200">
-             <p className="text-xs font-bold text-slate-700 mb-2 uppercase">Format Struktur Kolom Wajib:</p>
+             <p className="text-xs font-bold text-slate-700 mb-2 uppercase">Format Struktur Kolom (sesuai file Excel yang Anda kirim):</p>
              <ul className="text-xs text-slate-600 font-mono space-y-1 list-disc list-inside">
-               <li>kode_fat <span className="text-[10px] text-slate-400 font-sans">(Unik, misal: BZ-JKT-01)</span></li>
-               <li>nama_lokasi <span className="text-[10px] text-slate-400 font-sans">(Teks bebas)</span></li>
-               <li>alamat <span className="text-[10px] text-slate-400 font-sans">(Alamat lengkap)</span></li>
-               <li>latitude <span className="text-[10px] text-slate-400 font-sans">(Desimal, misal: -6.2)</span></li>
-               <li>longitude <span className="text-[10px] text-slate-400 font-sans">(Desimal, misal: 106.8)</span></li>
-               <li>radius_layanan_m <span className="text-[10px] text-slate-400 font-sans">(Angka bulat meter)</span></li>
+               <li>Province</li>
+               <li>City</li>
+               <li>Subdistrict</li>
+               <li>Village</li>
+               <li>Street</li>
+               <li>Number</li>
+               <li>Postal Code</li>
+               <li>Notes</li>
+               <li>HomeID</li>
+               <li>Coordinate</li>
+               <li>Project ID</li>
+               <li>Project Name</li>
+               <li>Cust. Status</li>
              </ul>
            </div>
 
            <input 
              type="file" 
-             accept=".csv" 
+             accept=".csv,.xls,.xlsx,.html" 
              className="hidden" 
              ref={fileInputRef} 
              onChange={handleFileUpload} 
